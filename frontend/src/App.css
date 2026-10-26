@@ -1,0 +1,14 @@
+body {
+  margin: 0;
+  font-family: 'Inter', system-ui, sans-serif;
+  background: #111827;
+  color: #f9fafb;
+}
+
+button, input, select {
+  font: inherit;
+}
+
+.slider {
+  accent-color: #a855f7;
+}

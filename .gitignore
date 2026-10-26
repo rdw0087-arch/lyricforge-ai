@@ -1,0 +1,44 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.pyc
+*.pdb
+*.egg-info/
+.venv/
+venv/
+.env
+.env.*
+*.sqlite3
+
+# Testing / coverage
+.pytest_cache/
+.coverage
+htmlcov/
+coverage.xml
+
+# IDE/editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Node / frontend
+frontend/node_modules/
+frontend/build/
+frontend/.env
+frontend/.env.*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Generated app data
+backend/uploads/
+backend/renders/
+backend/.env
+backend/.env.*
+
+# Local secrets
+secrets/
