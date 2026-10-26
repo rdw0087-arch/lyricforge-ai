@@ -1,0 +1,167 @@
+from __future__ import annotations
+
+import json
+from typing import Any, Dict, List, Optional
+
+try:
+    from openai import OpenAI
+except ImportError:  # pragma: no cover
+    OpenAI = None  # type: ignore[assignment]
+
+from backend.config.settings import get_settings
+
+settings = get_settings()
+
+
+def _fallback_storyboard(
+    mood: str,
+    style: str,
+    duration_target_seconds: int = 60,
+    lyric_text: str = "",
+) -> Dict[str, Any]:
+    """Return a deterministic storyboard when no external model is available."""
+    segments = [
+        {"start_time": 0, "end_time": 12, "section_name": "intro"},
+        {"start_time": 12, "end_time": 28, "section_name": "verse"},
+        {"start_time": 28, "end_time": 44, "section_name": "chorus"},
+        {"start_time": 44, "end_time": 56, "section_name": "bridge"},
+        {"start_time": 56, "end_time": duration_target_seconds, "section_name": "final_chorus"},
+    ]
+
+    shots: List[Dict[str, Any]] = []
+    for index, segment in enumerate(segments):
+        start = float(segment["start_time"])
+        end = float(segment["end_time"])
+        shots.append(
+            {
+                "index": index,
+                "section_name": segment["section_name"],
+                "start_time": round(start, 2),
+                "end_time": round(end, 2),
+                "lyric_excerpt": lyric_text[:120] if lyric_text else "Emotional lyric moment",
+                "scene_intent": f"{segment['section_name']} narrative beat",
+                "visual_prompt": (
+                    f"{style} music video scene, {mood} emotional energy, performer centered, "
+                    "cinematic lighting, atmospheric environment, realistic detail"
+                ),
+                "camera_direction": "slow push-in" if index < 2 else "dynamic tracking shot",
+                "lighting": "soft cinematic contrast",
+                "environment": "city rooftop and intimate performance space",
+                "emotion": mood,
+                "movement": "minimal motion" if index < 2 else "rhythmic motion",
+                "face_direction": "direct camera eye contact",
+                "body_pose": "confident performer posture",
+                "duration_seconds": round(max(6.0, end - start), 2),
+                "transition_to_next": "cut on beat",
+            }
+        )
+
+    return {
+        "overall_theme": f"{mood.title()} story with {style} visual language",
+        "narrative_arc": "The song opens with intimacy, expands into chorus energy, and resolves with a confident final visual payoff.",
+        "visual_language": {
+            "palette": ["midnight blue", "amber highlights", "silver"],
+            "lighting": "cinematic and atmospheric",
+            "camera_style": "slow push-ins and wide emotional reveals",
+            "motion_style": "rhythmic and expressive",
+        },
+        "shots": shots,
+    }
+
+
+def _build_storyboard_prompt(
+    song_title: str,
+    artist: str,
+    mood: str,
+    style: str,
+    duration_target_seconds: int,
+    lyric_text: str,
+    structure: Optional[List[Dict[str, Any]]] = None,
+) -> str:
+    structure_text = json.dumps(structure or [], indent=2)
+    return f"""
+You are a world-class music video creative director.
+
+Create a cinematic shot list for a short-form music video.
+
+Requirements:
+- Return valid JSON only.
+- JSON must have keys: overall_theme, narrative_arc, visual_language, shots.
+- visual_language must have palette, lighting, camera_style, motion_style.
+- Each shot must have index, section_name, start_time, end_time, lyric_excerpt,
+  scene_intent, visual_prompt, camera_direction, lighting, environment, emotion,
+  movement, face_direction, body_pose, duration_seconds, transition_to_next.
+- Use the song structure and lyric transcript to guide each shot.
+- Keep total runtime near {duration_target_seconds} seconds.
+- Keep between 4 and 10 shots.
+- Use the user as the visual center of the story.
+
+Inputs:
+- song_title: {song_title}
+- artist: {artist}
+- mood: {mood}
+- style: {style}
+- structure: {structure_text}
+- lyric_text: {lyric_text[:3000]}
+"""
+
+
+def generate_storyboard(
+    *,
+    song_title: str,
+    artist: str,
+    mood: str,
+    style: str,
+    duration_target_seconds: int = 60,
+    lyric_text: str = "",
+    structure: Optional[List[Dict[str, Any]]] = None,
+) -> Dict[str, Any]:
+    """Build a storyboard using OpenAI when configured, otherwise return a fallback.
+
+    This keeps the worker deterministic for local development and CI while still allowing
+    the app to plug into an LLM by setting OPENAI_API_KEY.
+    """
+    if not settings.openai_api_key or OpenAI is None:
+        return _fallback_storyboard(
+            mood=mood,
+            style=style,
+            duration_target_seconds=duration_target_seconds,
+            lyric_text=lyric_text,
+        )
+
+    try:
+        client = OpenAI(api_key=settings.openai_api_key)
+        prompt = _build_storyboard_prompt(
+            song_title=song_title,
+            artist=artist,
+            mood=mood,
+            style=style,
+            duration_target_seconds=duration_target_seconds,
+            lyric_text=lyric_text,
+            structure=structure,
+        )
+        response = client.chat.completions.create(
+            model=settings.llm_model,
+            response_format={"type": "json_object"},
+            messages=[
+                {"role": "system", "content": "You produce valid JSON only for storyboard generation."},
+                {"role": "user", "content": prompt},
+            ],
+            temperature=0.7,
+        )
+
+        content = response.choices[0].message.content
+        if not content:
+            raise ValueError("Empty storyboard response from LLM")
+
+        payload = json.loads(content)
+        if "shots" not in payload:
+            raise ValueError("Storyboard payload missing shots")
+        return payload
+    except Exception:
+        return _fallback_storyboard(
+            mood=mood,
+            style=style,
+            duration_target_seconds=duration_target_seconds,
+            lyric_text=lyric_text,
+        )
